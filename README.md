@@ -6,25 +6,24 @@
 [travis]: https://travis-ci.org/Dobiasd/frugally-deep
 [license]: LICENSE
 
-
 frugally-deep
 =============
-**Use Keras models in C++ with ease**
 
+**Use Keras models in C++ with ease**
 
 Table of contents
 -----------------
-  * [Introduction](#introduction)
-  * [Usage](#usage)
-  * [Performance](#performance)
-  * [Requirements and Installation](#requirements-and-installation)
-  * [Internals](#internals)
 
+* [Introduction](#introduction)
+* [Usage](#usage)
+* [Performance](#performance)
+* [Requirements and Installation](#requirements-and-installation)
+* [FAQ](#faq)
 
 Introduction
 ------------
 
-Would you like to build/train a model using Keras/Python? And would you like run the prediction (forward pass) on your model in C++ without linking your application against TensorFlow? Then frugally-deep is exactly for you.
+Would you like to build/train a model using Keras/Python? And would you like to run the prediction (forward pass) on your model in C++ without linking your application against TensorFlow? Then frugally-deep is exactly for you.
 
 **frugally-deep**
 
@@ -32,11 +31,11 @@ Would you like to build/train a model using Keras/Python? And would you like run
 * is very easy to integrate and use.
 * depends only on [FunctionalPlus](https://github.com/Dobiasd/FunctionalPlus), [Eigen](http://eigen.tuxfamily.org/) and [json](https://github.com/nlohmann/json) - also header-only libraries.
 * supports inference (`model.predict`) not only for [sequential models](https://keras.io/getting-started/sequential-model-guide/) but also for computational graphs with a more complex topology, created with the [functional API](https://keras.io/getting-started/functional-api-guide/).
-* re-implements a (small) subset of TensorFlow, i.e. the operations needed to support prediction.
+* re-implements a (small) subset of TensorFlow, i.e., the operations needed to support prediction.
 * results in a much smaller binary size than linking against TensorFlow.
-* works out of-the-box also when compiled into a 32-bit executable. (Of course 64 bit is fine too.)
-* utterly ignores even the most powerful GPU in your system and uses only one CPU core. ;-)
-* but is quite fast on one CPU core [compared to TensorFlow](#performance).
+* works out-of-the-box also when compiled into a 32-bit executable. (Of course, 64 bit is fine too.)
+* utterly ignores even the most powerful GPU in your system and uses only one CPU core per prediction. ;-)
+* but is quite fast on one CPU core [compared to TensorFlow](#performance), and you can run multiple predictions in parallel, thus utilizing as many CPUs as you like to improve the overall prediction throughput of your application/pipeline.
 
 
 ### Supported layer types
@@ -45,17 +44,18 @@ Layer types typically used in image recognition/generation are supported, making
 
 * `Add`, `Concatenate`, `Subtract`, `Multiply`, `Average`, `Maximum`
 * `AveragePooling1D/2D`, `GlobalAveragePooling1D/2D`
-* `Bidirectional`, `Embedding`, `GRU`, `LSTM`, `TimeDistributed`
+* `Bidirectional`, `TimeDistributed`, `GRU`, `LSTM`, `CuDNNGRU`, `CuDNNLSTM`
 * `Conv1D/2D`, `SeparableConv2D`, `DepthwiseConv2D`
 * `Cropping1D/2D`, `ZeroPadding1D/2D`
 * `BatchNormalization`, `Dense`, `Flatten`
-* `Dropout`, `AlphaDropout`, `GaussianDropout`
+* `Dropout`, `AlphaDropout`, `GaussianDropout`, `GaussianNoise`
 * `SpatialDropout1D`, `SpatialDropout2D`, `SpatialDropout3D`
 * `MaxPooling1D/2D`, `GlobalMaxPooling1D/2D`
 * `ELU`, `LeakyReLU`, `ReLU`, `SeLU`, `PReLU`
 * `Sigmoid`, `Softmax`, `Softplus`, `Tanh`
 * `UpSampling1D/2D`
 * `Reshape`, `Permute`
+* `Embedding`
 
 
 ### Also supported
@@ -66,21 +66,18 @@ Layer types typically used in image recognition/generation are supported, making
 * shared layers
 * variable input shapes
 * arbitrary complex model architectures / computational graphs
-
+* custom layers (by passing custom factory functions to `load_model`)
 
 ### Currently not supported are the following:
+
 `ActivityRegularization`,
 `AveragePooling3D`,
 `Conv2DTranspose`,
 `Conv3D`,
 `ConvLSTM2D`,
-`CuDNNGRU`,
-`CuDNNLSTM`,
 `Cropping3D`,
 `Dot`,
-`GaussianNoise`,
 `GRUCell`,
-`Lambda`,
 `LocallyConnected1D`,
 `LocallyConnected2D`,
 `LSTMCell`,
@@ -93,9 +90,7 @@ Layer types typically used in image recognition/generation are supported, making
 `StackedRNNCells`,
 `ThresholdedReLU`,
 `Upsampling3D`,
-`any custom layers`,
 `temporal` models
-
 
 Usage
 -----
@@ -111,8 +106,8 @@ The following minimal example shows the full workflow:
 ```python
 # create_model.py
 import numpy as np
-from keras.layers import Input, Dense
-from keras.models import Model
+from tensorflow.keras.layers import Input, Dense
+from tensorflow.keras.models import Model
 
 inputs = Input(shape=(4,))
 x = Dense(5, activation='relu')(inputs)
@@ -121,13 +116,13 @@ model = Model(inputs=inputs, outputs=predictions)
 model.compile(loss='categorical_crossentropy', optimizer='nadam')
 
 model.fit(
-    np.asarray([[1,2,3,4], [2,3,4,5]]),
-    np.asarray([[1,0,0], [0,0,1]]), epochs=10)
+    np.asarray([[1, 2, 3, 4], [2, 3, 4, 5]]),
+    np.asarray([[1, 0, 0], [0, 0, 1]]), epochs=10)
 
 model.save('keras_model.h5', include_optimizer=False)
 ```
 
-```
+```bash
 python3 keras_export/convert_model.py keras_model.h5 fdeep_model.json
 ```
 
@@ -138,77 +133,63 @@ int main()
 {
     const auto model = fdeep::load_model("fdeep_model.json");
     const auto result = model.predict(
-        {fdeep::tensor5(fdeep::shape5(1, 1, 1, 1, 4), {1, 2, 3, 4})});
-    std::cout << fdeep::show_tensor5s(result) << std::endl;
+        {fdeep::tensor(fdeep::tensor_shape(static_cast<std::size_t>(4)),
+        {1, 2, 3, 4})});
+    std::cout << fdeep::show_tensors(result) << std::endl;
 }
 ```
 
 When using `convert_model.py` a test case (input and corresponding output values) is generated automatically and saved along with your model. `fdeep::load_model` runs this test to make sure the results of a forward pass in frugally-deep are the same as in Keras.
 
-
-### Some integration examples
-
-* In order to convert images to `fdeep::tensor5` the convenience function `tensor5_from_bytes` is provided ([cimg example](https://gist.github.com/Dobiasd/21651861b73042762126e8eea52d9974), [opencv example](https://gist.github.com/Dobiasd/3140cfd9f539b6adb346e0b4a0ce157b), [tensor5_to_cv_mat.cpp](https://gist.github.com/Dobiasd/7ef20a0ad47d3f8dc1654a0ca5d1c77c)).
-* In case you want to convert an `Eigen::Matrix` to `fdeep::tensor5`, have a look at the following two examples: [copy values](https://gist.github.com/Dobiasd/966334bb867d170b334c8374e635cb9b), [reuse memory](https://gist.github.com/Dobiasd/2852c81adbd57a57e89d2d0385cc4c06).
-* If you have a normal `std::vector` with values and want to use it, check out [this explanation](https://gist.github.com/Dobiasd/8f41ef8bf4198ab535060a78b53f2008).
-* [This gist](https://gist.github.com/Dobiasd/eacfa84d00fc1f935f97621ec2c748a6) explains the reasoning behind models with multiple tensors as output and/or input. And here is another example of [using a model with multiple input tensors](https://gist.github.com/Dobiasd/14a3e233725a16bb7c86ca6f4d81a825).
-
+For more integration examples please have a look at the [FAQ](FAQ.md).
 
 Performance
 -----------
 
-Below you can find the average durations of multiple consecutive forward passes for some popular models ran on a single core of an Intel Core i5-6600 CPU @ 3.30GHz. frugally-deep was compiled (GCC ver. 5.4.0) with `g++ -O3 -mavx` (same as TensorFlow binaries). The processes were started with `CUDA_VISIBLE_DEVICES='' taskset --cpu-list 1 ...` to disable the GPU and to only allow usage of one CPU.
+Below you can find the average durations of multiple consecutive forward passes for some popular models ran on a **single core** of an Intel Core i5-6600 CPU @ 3.30GHz. frugally-deep and TensorFlow were compiled (GCC ver. 7.1) with `g++ -O3 -march=native`. The processes were started with `CUDA_VISIBLE_DEVICES='' taskset --cpu-list 1 ...` to **disable the GPU** and to only allow usage of one CPU.
 
 | Model             | Keras + TF | frugally-deep |
 | ----------------- | ----------:| -------------:|
-| `DenseNet121`     |     0.96 s |        0.32 s |
-| `DenseNet169`     |     1.17 s |        0.35 s |
-| `DenseNet201`     |     1.50 s |        0.46 s |
-| `InceptionV3`     |     0.71 s |        0.38 s |
-| `MobileNet`       |     0.34 s |        0.16 s |
-| `MobileNetV2`     |     0.40 s |        0.16 s |
-| `NASNetLarge`     |     4.22 s |        4.73 s |
-| `NASNetMobile`    |     0.34 s |        0.38 s |
-| `ResNet50`        |     0.73 s |        0.27 s |
-| `VGG16`           |     0.66 s |        0.78 s |
-| `VGG19`           |     0.82 s |        0.97 s |
-| `Xception`        |     1.50 s |        1.20 s |
-
-Keras version: `2.2.2`
-
-TensorFlow version: `1.10.1`
-
+| `DenseNet121`     |     0.14 s |        0.26 s |
+| `DenseNet169`     |     0.15 s |        0.29 s |
+| `DenseNet201`     |     0.18 s |        0.36 s |
+| `InceptionV3`     |     0.17 s |        0.27 s |
+| `MobileNet`       |     0.05 s |        0.13 s |
+| `MobileNetV2`     |     0.05 s |        0.15 s |
+| `NASNetLarge`     |     1.08 s |        4.17 s |
+| `NASNetMobile`    |     0.12 s |        0.35 s |
+| `ResNet101`       |     0.23 s |        0.31 s |
+| `ResNet101V2`     |     0.22 s |        0.28 s |
+| `ResNet152`       |     0.33 s |        0.45 s |
+| `ResNet152V2`     |     0.32 s |        0.41 s |
+| `ResNet50`        |     0.13 s |        0.19 s |
+| `ResNet50V2`      |     0.12 s |        0.16 s |
+| `VGG16`           |     0.40 s |        0.45 s |
+| `VGG19`           |     0.50 s |        0.54 s |
+| `Xception`        |     0.28 s |        1.05 s |
 
 Requirements and Installation
 -----------------------------
 
-A **C++14**-compatible compiler is needed. Compilers from these versions on are fine: GCC 4.9, Clang 3.7 (libc++ 3.7) and Visual C++ 2015.
+- A **C++14**-compatible compiler: Compilers from these versions on are fine: GCC 4.9, Clang 3.7 (libc++ 3.7) and Visual C++ 2015.
+- Python 3.5 or higher.
+- TensorFlow 2.0.0
 
 Guides for different ways to install frugally-deep can be found in [`INSTALL.md`](INSTALL.md).
 
+FAQ
+---
 
-Internals
----------
-
-frugally-deep uses `channels_last` (`height, width, depth/channels`) as its `image_data_format` internally, as does TensorFlow.
-Everything is handled as a float-32 tensor with rank 5.
-
-In case you would like to use `double` instead of `float` for all calculations, simply do this:
-```cpp
-#define FDEEP_FLOAT_TYPE double
-#include <fdeep/fdeep.hpp>
-```
-
-A frugally-deep model is thread-safe, i.e. you can call `model.predict` on the same model instance from different threads simultaneously. This way you may utilize up to as many CPU cores as you have predictions to make. With `model::predict_multi` there is a convenience function available to handle the parallelism for you.
-
+See [`FAQ.md`](FAQ.md)
 
 Disclaimer
+
 ----------
 The API of this library still might change in the future. If you have any suggestions, find errors or want to give general feedback/criticism, I'd [love to hear from you](https://github.com/Dobiasd/frugally-deep/issues). Of course, [contributions](https://github.com/Dobiasd/frugally-deep/pulls) are also very welcome.
 
-
 License
 -------
+
 Distributed under the MIT License.
 (See accompanying file [`LICENSE`](https://github.com/Dobiasd/frugally-deep/blob/master/LICENSE) or at
 [https://opensource.org/licenses/MIT](https://opensource.org/licenses/MIT))

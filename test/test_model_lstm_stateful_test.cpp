@@ -5,11 +5,15 @@
 //  https://opensource.org/licenses/MIT)
 
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include "doctest.h"
+#include "doctest/doctest.h"
 #include <fdeep/fdeep.hpp>
 
-TEST_CASE("test_model_full_test, load_model")
+#define FDEEP_FLOAT_TYPE double
+
+TEST_CASE("test_model_lstm_test_stateful, load_model")
 {
-    const auto model = fdeep::load_model("../test_model_full.json",
+    auto model = fdeep::load_model("../test_model_lstm_stateful.json",
         true, fdeep::cout_logger, static_cast<fdeep::float_type>(0.00001));
+    model.predict_stateful(model.generate_dummy_inputs());
+    model.predict_stateful(model.generate_dummy_inputs());
 }

@@ -24,38 +24,28 @@ class pooling_2d_layer : public layer
 {
 public:
     explicit pooling_2d_layer(const std::string& name,
-        const shape2& pool_size, const shape2& strides, padding p,
-        bool padding_valid_uses_offset, bool padding_same_uses_offset) :
+        const shape2& pool_size, const shape2& strides, bool channels_first,
+        padding p) :
         layer(name),
         pool_size_(pool_size),
         strides_(strides),
-        padding_(p),
-        padding_valid_uses_offset_(padding_valid_uses_offset),
-        padding_same_uses_offset_(padding_same_uses_offset)
+        channels_first_(channels_first),
+        padding_(p)
     {
     }
 protected:
-    tensor5s apply_impl(const tensor5s& inputs) const override final
+    tensors apply_impl(const tensors& inputs) const override final
     {
-        assertion(inputs.size() == 1, "invalid number of input tensors");
-        const auto& input = inputs.front();
+        const auto& input = single_tensor_from_tensors(inputs);
         return {pool(input)};
     }
 
-    bool use_offset() const
-    {
-        return
-            (padding_ == padding::valid && padding_valid_uses_offset_) ||
-            (padding_ == padding::same && padding_same_uses_offset_);
-    }
-
-    virtual tensor5 pool(const tensor5& input) const = 0;
+    virtual tensor pool(const tensor& input) const = 0;
 
     shape2 pool_size_;
     shape2 strides_;
+    bool channels_first_;
     padding padding_;
-    bool padding_valid_uses_offset_;
-    bool padding_same_uses_offset_;
 };
 
 } } // namespace fdeep, namespace internal
